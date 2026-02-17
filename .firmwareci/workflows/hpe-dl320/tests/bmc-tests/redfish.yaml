@@ -1,0 +1,14 @@
+name: BMC Redfish Test
+description: Runs the Redfish test suite on the BMC to verify compliance.
+
+stages:
+  - name: BMC Redfish Suite
+    steps:
+      - cmd: bmctest
+        name: Run Redfish Test Suite
+        options:
+          timeout: 30m
+        parameters:
+          command: suite
+          config_path: "[[storage.bmc_config_dl320]]/dl320.yaml"
+          suite_name: redfish

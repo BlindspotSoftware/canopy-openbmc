@@ -1,0 +1,14 @@
+name: BMC PCI Test
+description: Runs the PCI test suite on the BMC to verify compliance.
+
+stages:
+  - name: BMC PCI Suite
+    steps:
+      - cmd: bmctest
+        name: Run PCI Test Suite
+        options:
+          timeout: 30m
+        parameters:
+          command: suite
+          config_path: "[[storage.bmc_config_dl320]]/dl320.yaml"
+          suite_name: pci
