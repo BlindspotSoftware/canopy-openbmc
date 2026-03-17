@@ -1,0 +1,76 @@
+name: "Smoke: Service Failures"
+description: >-
+  Verify no unexpected service failures and no crash-looping
+  critical services.
+
+defaults:
+  transport: &bmc_ssh
+    proto: ssh
+    options:
+      host: "[[attributes.BMC]]"
+      user: "root"
+      password: "[[attributes.BMCPassword]]"
+      jump_host:
+        host: "[[attributes.DutAgentHost]]"
+        user: oscar
+        identity_file: /root/.ssh/fwci
+
+  bmc_proxy: &bmc_proxy
+    type: ssh
+    host: "[[attributes.DutAgentHost]]"
+    port: 22
+    ssh:
+      user: oscar
+      identity_file: /root/.ssh/fwci
+
+stages:
+  - name: Wait for BMC
+    steps:
+      - cmd: ping
+        name: Wait for SSH
+        options:
+          timeout: 5m
+        parameters:
+          host: "[[attributes.BMC]]"
+          port: 22
+          proxy: *bmc_proxy
+
+      - cmd: cmd
+        name: Wait for services to settle
+        transport: *bmc_ssh
+        options:
+          timeout: 2m
+        parameters:
+          executable: sleep
+          args: ["45"]
+
+  - name: No Unexpected Failures
+    steps:
+      - cmd: cmd
+        name: List failed units
+        transport: *bmc_ssh
+        parameters:
+          executable: sh
+          args:
+            - "-c"
+            - "FAILED=$(systemctl list-units --state=failed --no-pager --no-legend | grep -v 'clear-once\\|bmc_booted\\|trace-enable'); if [ -n \"$FAILED\" ]; then echo \"$FAILED\"; exit 1; fi; echo '0 unexpected failures'"
+
+  - name: No Crash Loops
+    steps:
+      - cmd: cmd
+        name: CHIF no restarts
+        transport: *bmc_ssh
+        parameters:
+          executable: sh
+          args:
+            - "-c"
+            - "RESTARTS=$(systemctl show xyz.openbmc_project.GxpChif.service -p NRestarts --value); echo \"CHIF NRestarts=$RESTARTS\"; test \"$RESTARTS\" = \"0\""
+
+      - cmd: cmd
+        name: SMBIOS MDR no restarts
+        transport: *bmc_ssh
+        parameters:
+          executable: sh
+          args:
+            - "-c"
+            - "RESTARTS=$(systemctl show smbios-mdrv2.service -p NRestarts --value); echo \"smbios-mdr NRestarts=$RESTARTS\"; test \"$RESTARTS\" = \"0\""

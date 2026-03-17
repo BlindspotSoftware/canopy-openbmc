@@ -1,7 +1,9 @@
 name: HPE-DL320
 label: hpe-dl320
 attributes:
-  BMC: dl320g11-bmc-fwci.sec.9e.network
-  DutAgent: worker100.sec.9e.network:1024
+  BMC: hpe-proliant-g11.local
+  BMCPassword: 0penBmc
+  DutAgent: worker100.demo.vpn.firmware-ci.com.:1024
+  DutAgentHost: worker100.demo.vpn.firmware-ci.com
   Device: dl320
   Board: dl320
