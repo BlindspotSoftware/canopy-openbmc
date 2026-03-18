@@ -1,0 +1,310 @@
+name: "Console: VUART Userspace"
+description: >-
+  Verify the OpenBMC host console stack: obmc-console-server on ttyVUART0,
+  obmc-console-ssh socket on port 2200, log file capture, and udev symlink.
+  This is an OpenBMC userspace test — it validates the phosphor console
+  infrastructure on top of the GXP VUART kernel driver.
+
+defaults:
+  transport: &local
+    proto: local
+
+  bmc_ssh: &bmc_ssh
+    proto: ssh
+    options:
+      host: "[[attributes.BMC]]"
+      user: "root"
+      password: "[[attributes.BMCPassword]]"
+      jump_host:
+        host: "[[attributes.DutAgentHost]]"
+        user: oscar
+        identity_file: /root/.ssh/fwci
+
+  bmc_proxy: &bmc_proxy
+    type: ssh
+    host: "[[attributes.DutAgentHost]]"
+    port: 22
+    ssh:
+      user: oscar
+      identity_file: /root/.ssh/fwci
+
+  dut_agent: &dut_agent
+    proto: ssh
+    options:
+      host: "[[attributes.DutAgentHost]]"
+      user: oscar
+      identity_file: /root/.ssh/fwci
+
+stages:
+  - name: Wait for BMC
+    steps:
+      - cmd: ping
+        name: Wait for SSH
+        options:
+          timeout: 5m
+        parameters:
+          host: "[[attributes.BMC]]"
+          port: 22
+          proxy: *bmc_proxy
+
+      - cmd: cmd
+        name: Wait for services to settle
+        transport: *bmc_ssh
+        options:
+          timeout: 2m
+        parameters:
+          executable: sleep
+          args: ["45"]
+
+  - name: Console Server
+    steps:
+      - cmd: cmd
+        name: obmc-console-server active on ttyVUART0
+        transport: *bmc_ssh
+        options:
+          timeout: 5s
+          on-error: continue
+        parameters:
+          executable: systemctl
+          args: ["is-active", "obmc-console@ttyVUART0.service"]
+
+      - cmd: cmd
+        name: Server process running with correct config
+        transport: *bmc_ssh
+        options:
+          timeout: 5s
+          on-error: continue
+        parameters:
+          executable: sh
+          args:
+            - "-c"
+            - "PID=$(pidof obmc-console-server); test -n \"$PID\" && cat /proc/$PID/cmdline 2>/dev/null | tr '\\0' ' '"
+          expect:
+            - regex: "ttyVUART0"
+
+      - cmd: cmd
+        name: Server has ttyS3 file descriptor open
+        transport: *bmc_ssh
+        options:
+          timeout: 5s
+          on-error: continue
+        parameters:
+          executable: sh
+          args:
+            - "-c"
+            - "PID=$(pidof obmc-console-server); ls -la /proc/$PID/fd/ 2>/dev/null"
+          expect:
+            - regex: "ttyS3"
+
+  - name: Console Configuration
+    steps:
+      - cmd: cmd
+        name: Server config exists with logsize
+        transport: *bmc_ssh
+        options:
+          timeout: 5s
+          on-error: continue
+        parameters:
+          executable: cat
+          args: ["/etc/obmc-console/server.ttyVUART0.conf"]
+          expect:
+            - regex: "logsize"
+
+      - cmd: cmd
+        name: No self-referencing local-tty in config
+        transport: *bmc_ssh
+        options:
+          timeout: 5s
+          on-error: continue
+        parameters:
+          executable: sh
+          args:
+            - "-c"
+            - "! grep -q 'local-tty' /etc/obmc-console/server.ttyVUART0.conf"
+
+  - name: Udev Symlink
+    steps:
+      - cmd: cmd
+        name: ttyVUART0 symlink created by udev rule
+        transport: *bmc_ssh
+        options:
+          timeout: 5s
+          on-error: continue
+        parameters:
+          executable: sh
+          args:
+            - "-c"
+            - "test -L /dev/ttyVUART0 && readlink /dev/ttyVUART0"
+          expect:
+            - regex: "ttyS3"
+
+      - cmd: cmd
+        name: GXP udev rule installed
+        transport: *bmc_ssh
+        options:
+          timeout: 5s
+          on-error: continue
+        parameters:
+          executable: ls
+          args: ["/usr/lib/udev/rules.d/80-gxp-obmc-console-uart.rules"]
+
+  - name: Console Unix Socket
+    steps:
+      - cmd: cmd
+        name: Abstract socket obmc-console.default exists
+        transport: *bmc_ssh
+        options:
+          timeout: 5s
+          on-error: continue
+        parameters:
+          executable: cat
+          args: ["/proc/net/unix"]
+          expect:
+            - regex: "@obmc-console\\.default"
+
+  - name: Console SSH Service
+    steps:
+      - cmd: cmd
+        name: obmc-console-ssh socket listening on port 2200
+        transport: *bmc_ssh
+        options:
+          timeout: 5s
+          on-error: continue
+        parameters:
+          executable: systemctl
+          args: ["is-active", "obmc-console-ssh.socket"]
+
+      - cmd: cmd
+        name: Dropbear config exists
+        transport: *bmc_ssh
+        options:
+          timeout: 5s
+          on-error: continue
+        parameters:
+          executable: test
+          args: ["-f", "/etc/obmc-console/dropbear.env"]
+
+      - cmd: cmd
+        name: Port 2200 is listening
+        transport: *bmc_ssh
+        options:
+          timeout: 5s
+          on-error: continue
+        parameters:
+          executable: cat
+          args: ["/proc/net/tcp6"]
+          expect:
+            - regex: ":0898"
+
+  - name: Console Log File
+    steps:
+      - cmd: cmd
+        name: Log file exists at /var/log/obmc-console.log
+        transport: *bmc_ssh
+        options:
+          timeout: 5s
+          on-error: continue
+        parameters:
+          executable: test
+          args: ["-f", "/var/log/obmc-console.log"]
+
+      - cmd: cmd
+        name: Log file writable by console server
+        transport: *bmc_ssh
+        options:
+          timeout: 5s
+          on-error: continue
+        parameters:
+          executable: sh
+          args:
+            - "-c"
+            - "PID=$(pidof obmc-console-server); ls -la /proc/$PID/fd/ 2>/dev/null"
+          expect:
+            - regex: "obmc-console\\.log"
+
+  - name: obmc-console-client
+    steps:
+      - cmd: cmd
+        name: obmc-console-client binary installed
+        transport: *bmc_ssh
+        options:
+          timeout: 5s
+          on-error: continue
+        parameters:
+          executable: test
+          args: ["-x", "/usr/bin/obmc-console-client"]
+
+  - name: Console Data Flow
+    steps:
+      - cmd: cmd
+        name: Power off host for console data test
+        transport: *dut_agent
+        options:
+          timeout: 30s
+        parameters:
+          executable: sh
+          args:
+            - "-c"
+            - 'HTTP=$(curl -sk -u root:[[attributes.BMCPassword]] -X POST -H ''Content-Type: application/json'' -d ''{"ResetType":"ForceOff"}'' https://[[attributes.BMC]]/redfish/v1/Systems/system/Actions/ComputerSystem.Reset -o /dev/null -w ''%{http_code}''); echo "ForceOff HTTP=$HTTP"; test "$HTTP" = "200" || test "$HTTP" = "204"'
+
+      - cmd: cmd
+        name: Wait for power off
+        transport: *local
+        parameters:
+          executable: sleep
+          args: ["10"]
+
+      - cmd: cmd
+        name: Record log file size before host boot
+        transport: *bmc_ssh
+        options:
+          timeout: 5s
+        parameters:
+          executable: sh
+          args:
+            - "-c"
+            - 'BEFORE=$(wc -c < /var/log/obmc-console.log 2>/dev/null || echo 0); echo "$BEFORE" > /tmp/console_log_before; echo "log_bytes_before=$BEFORE"'
+
+      - cmd: cmd
+        name: Power on host
+        transport: *dut_agent
+        options:
+          timeout: 30s
+        parameters:
+          executable: sh
+          args:
+            - "-c"
+            - 'HTTP=$(curl -sk -u root:[[attributes.BMCPassword]] -X POST -H ''Content-Type: application/json'' -d ''{"ResetType":"On"}'' https://[[attributes.BMC]]/redfish/v1/Systems/system/Actions/ComputerSystem.Reset -o /dev/null -w ''%{http_code}''); echo "On HTTP=$HTTP"; test "$HTTP" = "200" || test "$HTTP" = "204"'
+
+      - cmd: cmd
+        name: Wait for host POST data
+        transport: *local
+        options:
+          timeout: 4m
+        parameters:
+          executable: sleep
+          args: ["180"]
+
+      - cmd: cmd
+        name: Console log grew during host boot
+        transport: *bmc_ssh
+        options:
+          timeout: 10s
+          on-error: continue
+        parameters:
+          executable: sh
+          args:
+            - "-c"
+            - 'BEFORE=$(cat /tmp/console_log_before 2>/dev/null || echo 0); AFTER=$(wc -c < /var/log/obmc-console.log 2>/dev/null || echo 0); DELTA=$((AFTER - BEFORE)); echo "log_before=$BEFORE log_after=$AFTER delta=$DELTA bytes"; test "$DELTA" -gt 100'
+
+      - cmd: cmd
+        name: Console log contains host POST text
+        transport: *bmc_ssh
+        options:
+          timeout: 5s
+          on-error: continue
+        parameters:
+          executable: sh
+          args:
+            - "-c"
+            - 'FOUND=0; for PAT in ''Initialization'' ''CHIF'' ''Memory'' ''BMC''; do grep -qi "$PAT" /var/log/obmc-console.log && FOUND=$((FOUND+1)); done; echo "matched_patterns=$FOUND/4"; rm -f /tmp/console_log_before; test "$FOUND" -ge 1'

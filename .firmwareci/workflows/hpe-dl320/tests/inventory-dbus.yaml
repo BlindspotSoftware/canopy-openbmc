@@ -1,0 +1,134 @@
+name: "Inventory: D-Bus Objects"
+description: >-
+  Verify SMBIOS-derived inventory objects are present on D-Bus after host POST.
+  Covers the smbios-mdr service populating TPM, PCIe slots, BIOS, DIMM, and
+  CPU objects under xyz.openbmc_project.Smbios.MDR_V2. Requires host POST
+  complete.
+
+defaults:
+  transport: &bmc_ssh
+    proto: ssh
+    options:
+      host: "[[attributes.BMC]]"
+      user: "root"
+      password: "[[attributes.BMCPassword]]"
+      jump_host:
+        host: "[[attributes.DutAgentHost]]"
+        user: oscar
+        identity_file: /root/.ssh/fwci
+
+  bmc_proxy: &bmc_proxy
+    type: ssh
+    host: "[[attributes.DutAgentHost]]"
+    port: 22
+    ssh:
+      user: oscar
+      identity_file: /root/.ssh/fwci
+
+  dut_agent: &dut_agent
+    proto: ssh
+    options:
+      host: "[[attributes.DutAgentHost]]"
+      user: oscar
+      identity_file: /root/.ssh/fwci
+
+stages:
+  - name: Wait for BMC and Power On Host
+    steps:
+      - cmd: ping
+        name: Wait for SSH
+        options:
+          timeout: 5m
+        parameters:
+          host: "[[attributes.BMC]]"
+          port: 22
+          proxy: *bmc_proxy
+
+      - cmd: cmd
+        name: Wait for BMC services
+        transport: *bmc_ssh
+        options:
+          timeout: 2m
+        parameters:
+          executable: sleep
+          args: ["45"]
+
+      - cmd: cmd
+        name: Power on host via Redfish
+        transport: *dut_agent
+        parameters:
+          executable: sh
+          args:
+            - "-c"
+            - 'HTTP=$(curl -sk -u root:[[attributes.BMCPassword]] -X POST -H ''Content-Type: application/json'' -d ''{"ResetType":"On"}'' https://[[attributes.BMC]]/redfish/v1/Systems/system/Actions/ComputerSystem.Reset -o /dev/null -w ''%{http_code}''); echo "Power On HTTP=$HTTP"; test "$HTTP" = "200" || test "$HTTP" = "204"'
+
+      - cmd: cmd
+        name: Wait 220s for host POST and SMBIOS transfer
+        transport: *bmc_ssh
+        options:
+          timeout: 5m
+        parameters:
+          executable: sleep
+          args: ["220"]
+
+  - name: SMBIOS D-Bus Objects
+    steps:
+      - cmd: cmd
+        name: TPM object on Smbios.MDR_V2
+        transport: *bmc_ssh
+        options:
+          timeout: 5s
+          on-error: continue
+        parameters:
+          executable: busctl
+          args: [tree, xyz.openbmc_project.Smbios.MDR_V2, --no-pager]
+          expect:
+            - regex: "tpm0"
+
+      - cmd: cmd
+        name: PCIe slot objects >= 4 on Smbios.MDR_V2
+        transport: *bmc_ssh
+        options:
+          timeout: 5s
+          on-error: continue
+        parameters:
+          executable: sh
+          args:
+            - "-c"
+            - 'COUNT=$(busctl tree xyz.openbmc_project.Smbios.MDR_V2 --no-pager | grep -c pcieslot); echo "PCIe slots: $COUNT"; test "$COUNT" -ge 4'
+
+      - cmd: cmd
+        name: BIOS object on Smbios.MDR_V2
+        transport: *bmc_ssh
+        options:
+          timeout: 5s
+          on-error: continue
+        parameters:
+          executable: busctl
+          args: [tree, xyz.openbmc_project.Smbios.MDR_V2, --no-pager]
+          expect:
+            - regex: "bios"
+
+      - cmd: cmd
+        name: DIMM objects on Smbios.MDR_V2
+        transport: *bmc_ssh
+        options:
+          timeout: 5s
+          on-error: continue
+        parameters:
+          executable: busctl
+          args: [tree, xyz.openbmc_project.Smbios.MDR_V2, --no-pager]
+          expect:
+            - regex: "dimm"
+
+      - cmd: cmd
+        name: CPU objects on Smbios.MDR_V2
+        transport: *bmc_ssh
+        options:
+          timeout: 5s
+          on-error: continue
+        parameters:
+          executable: busctl
+          args: [tree, xyz.openbmc_project.Smbios.MDR_V2, --no-pager]
+          expect:
+            - regex: "cpu"

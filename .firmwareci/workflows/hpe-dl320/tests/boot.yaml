@@ -1,0 +1,23 @@
+name: "Smoke: Boot"
+description: Checks if the system boots successfully and is accessible via SSH.
+
+defaults:
+  bmc_proxy: &bmc_proxy
+    type: ssh
+    host: "[[attributes.DutAgentHost]]"
+    port: 22
+    ssh:
+      user: oscar
+      identity_file: /root/.ssh/fwci
+
+stages:
+  - name: Check SSH connectivity
+    steps:
+      - cmd: ping
+        name: Wait for SSH service
+        options:
+          timeout: 10m
+        parameters:
+          host: "[[attributes.BMC]]"
+          port: 22
+          proxy: *bmc_proxy

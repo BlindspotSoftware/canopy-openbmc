@@ -1,0 +1,29 @@
+name: OCP Tioga Pass FirmwareCI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  ocp-tiogapass-fwci:
+    runs-on: [self-hosted, Hydra, Large]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build OCP Tioga Pass
+        uses: ./.github/actions/build-emulated
+        with:
+          target: ocp-tiogapass
+          artifact: flash-ocp-tiogapass
+
+      - name: Upload to FirmwareCI
+        uses: ./.github/actions/upload-firmwareci
+        with:
+          token: "${{ secrets.FWCI_TOKEN }}"
+          workflow_id: "01KJ85FTNE49XPXNH4QRVS5CR5"
+          commit_hash: ${{ github.event.pull_request.head.sha || github.sha }}
+          binaries: firmware=./flash-ocp-tiogapass

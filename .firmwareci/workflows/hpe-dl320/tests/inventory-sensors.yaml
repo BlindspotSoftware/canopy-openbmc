@@ -1,0 +1,151 @@
+name: "Inventory: Sensors"
+description: >-
+  Verify sensor count and presence of platform-universal sensors via Redfish.
+  Covers entity-manager configs and dbus-sensors for GXP, CPU temperature
+  sensors. PSU sensors are verified in inventory-psu.yaml. Fan PWM sensors
+  are verified in fan-control.yaml.
+
+defaults:
+  transport: &local
+    proto: local
+
+  bmc_ssh: &bmc_ssh
+    proto: ssh
+    options:
+      host: "[[attributes.BMC]]"
+      user: "root"
+      password: "[[attributes.BMCPassword]]"
+      jump_host:
+        host: "[[attributes.DutAgentHost]]"
+        user: oscar
+        identity_file: /root/.ssh/fwci
+
+  bmc_proxy: &bmc_proxy
+    type: ssh
+    host: "[[attributes.DutAgentHost]]"
+    port: 22
+    ssh:
+      user: oscar
+      identity_file: /root/.ssh/fwci
+
+  dut_agent: &dut_agent
+    proto: ssh
+    options:
+      host: "[[attributes.DutAgentHost]]"
+      user: oscar
+      identity_file: /root/.ssh/fwci
+
+stages:
+  - name: Wait for BMC and Power On Host
+    steps:
+      - cmd: ping
+        name: Wait for SSH
+        options:
+          timeout: 5m
+        parameters:
+          host: "[[attributes.BMC]]"
+          port: 22
+          proxy: *bmc_proxy
+
+      - cmd: cmd
+        name: Wait for services to settle
+        transport: *bmc_ssh
+        options:
+          timeout: 2m
+        parameters:
+          executable: sleep
+          args: ["45"]
+
+      - cmd: cmd
+        name: Power on host via Redfish
+        transport: *dut_agent
+        parameters:
+          executable: sh
+          args:
+            - "-c"
+            - 'HTTP=$(curl -sk -u root:[[attributes.BMCPassword]] -X POST -H ''Content-Type: application/json'' -d ''{"ResetType":"On"}'' https://[[attributes.BMC]]/redfish/v1/Systems/system/Actions/ComputerSystem.Reset -o /dev/null -w ''%{http_code}''); echo "Power On HTTP=$HTTP"; test "$HTTP" = "200" || test "$HTTP" = "204"'
+
+      - cmd: cmd
+        name: Wait 120s for host POST and PECI sensors
+        transport: *local
+        options:
+          timeout: 3m
+        parameters:
+          executable: sleep
+          args: ["120"]
+
+  - name: Sensor Counts
+    steps:
+      - cmd: cmd
+        name: Total sensor count >= 20
+        transport: *dut_agent
+        options:
+          timeout: 30s
+          on-error: continue
+        parameters:
+          executable: curl
+          args:
+            [
+              -sk,
+              -u,
+              "root:[[attributes.BMCPassword]]",
+              "https://[[attributes.BMC]]/redfish/v1/Chassis/chassis/Sensors",
+            ]
+          expect:
+            - regex: '"Members@odata.count": *([2-9][0-9]|[1-9][0-9]{2,})'
+
+  - name: Temperature Sensors Present
+    steps:
+      - cmd: cmd
+        name: GXP_Temp present
+        transport: *dut_agent
+        options:
+          timeout: 30s
+          on-error: continue
+        parameters:
+          executable: curl
+          args:
+            [
+              -sk,
+              -u,
+              "root:[[attributes.BMCPassword]]",
+              "https://[[attributes.BMC]]/redfish/v1/Chassis/chassis/Sensors",
+            ]
+          expect:
+            - regex: "GXP_Temp"
+
+      - cmd: cmd
+        name: DTS_CPU1 present
+        transport: *dut_agent
+        options:
+          timeout: 30s
+          on-error: continue
+        parameters:
+          executable: curl
+          args:
+            [
+              -sk,
+              -u,
+              "root:[[attributes.BMCPassword]]",
+              "https://[[attributes.BMC]]/redfish/v1/Chassis/chassis/Sensors",
+            ]
+          expect:
+            - regex: "DTS_CPU1"
+
+      - cmd: cmd
+        name: Die_CPU1 present
+        transport: *dut_agent
+        options:
+          timeout: 30s
+          on-error: continue
+        parameters:
+          executable: curl
+          args:
+            [
+              -sk,
+              -u,
+              "root:[[attributes.BMCPassword]]",
+              "https://[[attributes.BMC]]/redfish/v1/Chassis/chassis/Sensors",
+            ]
+          expect:
+            - regex: "Die_CPU1"

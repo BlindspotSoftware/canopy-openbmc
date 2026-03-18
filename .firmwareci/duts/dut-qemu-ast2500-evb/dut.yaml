@@ -1,5 +1,0 @@
-name: QEMU-AST2500-EVB
-label: qemu-ast2500-evb
-attributes:
-  Host: "127.0.0.1"
-  Flasher: "flasher.local"

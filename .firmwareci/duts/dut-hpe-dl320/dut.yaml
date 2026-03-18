@@ -1,0 +1,9 @@
+name: HPE-DL320
+label: hpe-dl320
+attributes:
+  BMC: hpe-proliant-g11.local
+  BMCPassword: 0penBmc
+  DutAgent: worker100.demo.vpn.firmware-ci.com.:1024
+  DutAgentHost: worker100.demo.vpn.firmware-ci.com
+  Device: dl320
+  Board: dl320

@@ -1,0 +1,3 @@
+name: HPE-DL320-Gen11
+description: Run and validate canopy images with HPE DL320 Gen11
+runs-on: hpe-dl320
